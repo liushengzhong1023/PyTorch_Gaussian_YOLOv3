@@ -9,8 +9,9 @@ class YOLOLayer(nn.Module):
     """
     detection layer corresponding to yolo_layer.c of darknet
     """
+
     def __init__(
-        self, config_model, layer_no, in_ch, ignore_thre=0.7):
+            self, config_model, layer_no, in_ch, ignore_thre=0.7):
         """
         Args:
             config_model (dict) : model configuration.
@@ -26,7 +27,7 @@ class YOLOLayer(nn.Module):
         """
 
         super(YOLOLayer, self).__init__()
-        strides = [32, 16, 8] # fixed
+        strides = [32, 16, 8]  # fixed
         self.anchors = config_model['ANCHORS']
         self.anch_mask = config_model['ANCH_MASK'][layer_no]
         self.n_anchors = len(self.anch_mask)
@@ -35,7 +36,7 @@ class YOLOLayer(nn.Module):
         self.ignore_thre = ignore_thre
         self.stride = strides[layer_no]
         all_anchors_grid = [(w / self.stride, h / self.stride)
-                                 for w, h in self.anchors]
+                            for w, h in self.anchors]
         self.masked_anchors = [all_anchors_grid[i]
                                for i in self.anch_mask]
         self.ref_anchors = np.zeros((len(all_anchors_grid), 4))
@@ -72,6 +73,7 @@ class YOLOLayer(nn.Module):
             loss_cls (torch.Tensor): classification loss - calculated by BCE for each class.
             loss_l2 (torch.Tensor): total l2 loss - only for logging.
         """
+        # convolution layer without activation
         output = self.conv(xin)
 
         batchsize = output.shape[0]
@@ -79,34 +81,32 @@ class YOLOLayer(nn.Module):
         n_ch = 5 + self.n_classes  # channels per anchor w/o xywh unceartainties
         dtype = torch.cuda.FloatTensor if xin.is_cuda else torch.FloatTensor
 
+        # same size at x and y dimension
         output = output.view(batchsize, self.n_anchors, -1, fsize, fsize)
-        output = output.permute(0, 1, 3, 4, 2)  # shape: [batch, anchor, grid_y, grid_x, channels_per_anchor]
+
+        # shape: [batch, anchor, grid_y, grid_x, channels_per_anchor]
+        output = output.permute(0, 1, 3, 4, 2)
 
         if self.gaussian:
-            # logistic activation for sigma of xywh
+            # logistic activation for sigma of xywh, variance
             sigma_xywh = output[..., -4:]  # shape: [batch, anchor, grid_y, grid_x, 4(= xywh uncertainties)]
             sigma_xywh = torch.sigmoid(sigma_xywh)
 
+            # output shape: [batch, anchor, grid_y, grid_x, n_class + 5(= x, y, w, h, objectness)]
             output = output[..., :-4]
-        # output shape: [batch, anchor, grid_y, grid_x, n_class + 5(= x, y, w, h, objectness)]
 
-        # logistic activation for xy, obj, cls
-        output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(
-            output[..., np.r_[:2, 4:n_ch]])
+        # logistic activation for xy, obj, cls; skip the mean for w, h
+        output[..., np.r_[:2, 4:n_ch]] = torch.sigmoid(output[..., np.r_[:2, 4:n_ch]])
 
         # calculate pred - xywh obj cls
-
-        x_shift = dtype(np.broadcast_to(
-            np.arange(fsize, dtype=np.float32), output.shape[:4]))
-        y_shift = dtype(np.broadcast_to(
-            np.arange(fsize, dtype=np.float32).reshape(fsize, 1), output.shape[:4]))
+        x_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32), output.shape[:4]))
+        y_shift = dtype(np.broadcast_to(np.arange(fsize, dtype=np.float32).reshape(fsize, 1), output.shape[:4]))
 
         masked_anchors = np.array(self.masked_anchors)
-
-        w_anchors = dtype(np.broadcast_to(np.reshape(
-            masked_anchors[:, 0], (1, self.n_anchors, 1, 1)), output.shape[:4]))
-        h_anchors = dtype(np.broadcast_to(np.reshape(
-            masked_anchors[:, 1], (1, self.n_anchors, 1, 1)), output.shape[:4]))
+        w_anchors = dtype(
+            np.broadcast_to(np.reshape(masked_anchors[:, 0], (1, self.n_anchors, 1, 1)), output.shape[:4]))
+        h_anchors = dtype(
+            np.broadcast_to(np.reshape(masked_anchors[:, 1], (1, self.n_anchors, 1, 1)), output.shape[:4]))
 
         pred = output.clone()
         pred[..., 0] += x_shift
@@ -114,39 +114,35 @@ class YOLOLayer(nn.Module):
         pred[..., 2] = torch.exp(pred[..., 2]) * w_anchors
         pred[..., 3] = torch.exp(pred[..., 3]) * h_anchors
 
-        if labels is None:  # not training
+        if labels is None:  # not training, inference
+            # shape: [batch, anchor x grid_y x grid_x, n_class + 5]
             pred[..., :4] *= self.stride
-            pred = pred.view(batchsize, -1, n_ch)  # shsape: [batch, anchor x grid_y x grid_x, n_class + 5]
+            pred = pred.view(batchsize, -1, n_ch)
 
             if self.gaussian:
-                # scale objectness confidence with xywh uncertainties
-                sigma_xywh = sigma_xywh.view(batchsize, -1, 4)  # shsape: [batch, anchor x grid_y x grid_x, 4]
+                # scale objectness confidence with xywh uncertainties, take mean of four variances
+                sigma_xywh = sigma_xywh.view(batchsize, -1, 4)  # shape: [batch, anchor x grid_y x grid_x, 4]
                 sigma = sigma_xywh.mean(dim=-1)
                 pred[..., 4] *= (1.0 - sigma)
 
                 # unnormalize uncertainties
                 sigma_xywh = torch.sqrt(sigma_xywh)
-                sigma_xywh[..., :2] *= self.stride
-                sigma_xywh[..., 2:] = torch.exp(sigma_xywh[..., 2:])
+                sigma_xywh[..., :2] *= self.stride  # x,y
+                sigma_xywh[..., 2:] = torch.exp(sigma_xywh[..., 2:])  # w, h
 
                 # concat pred with uncertainties
-                pred = torch.cat([pred, sigma_xywh], 2)  # shsape: [batch, anchor x grid_y x grid_x, n_class + 9]
+                pred = torch.cat([pred, sigma_xywh], 2)  # shape: [batch, anchor x grid_y x grid_x, n_class + 9]
 
             return pred.data
 
-        pred = pred[..., :4].data  # shape: [batch, anchor, grid_y, grid_x, 4(= x, y, w, h)]
+        # shape: [batch, anchor, grid_y, grid_x, 4(= x, y, w, h)]
+        pred = pred[..., :4].data
 
-        # target assignment
-
-        tgt_mask = torch.zeros(batchsize, self.n_anchors,
-                               fsize, fsize, 4 + self.n_classes).type(dtype)
-        obj_mask = torch.ones(batchsize, self.n_anchors,
-                              fsize, fsize).type(dtype)
-        tgt_scale = torch.zeros(batchsize, self.n_anchors,
-                                fsize, fsize, 2).type(dtype)
-
-        target = torch.zeros(batchsize, self.n_anchors,
-                             fsize, fsize, n_ch).type(dtype)
+        # target assignment in the training
+        tgt_mask = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 4 + self.n_classes).type(dtype)
+        obj_mask = torch.ones(batchsize, self.n_anchors, fsize, fsize).type(dtype)
+        tgt_scale = torch.zeros(batchsize, self.n_anchors, fsize, fsize, 2).type(dtype)
+        target = torch.zeros(batchsize, self.n_anchors, fsize, fsize, n_ch).type(dtype)
 
         labels = labels.cpu().data
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)  # number of objects
@@ -173,7 +169,7 @@ class YOLOLayer(nn.Module):
             best_n_all = np.argmax(anchor_ious_all, axis=1)
             best_n = best_n_all % 3
             best_n_mask = ((best_n_all == self.anch_mask[0]) | (
-                best_n_all == self.anch_mask[1]) | (best_n_all == self.anch_mask[2]))
+                    best_n_all == self.anch_mask[1]) | (best_n_all == self.anch_mask[2]))
 
             truth_box[:n, 0] = truth_x_all[b, :n]
             truth_box[:n, 1] = truth_y_all[b, :n]
@@ -196,9 +192,9 @@ class YOLOLayer(nn.Module):
                     obj_mask[b, a, j, i] = 1
                     tgt_mask[b, a, j, i, :] = 1
                     target[b, a, j, i, 0] = truth_x_all[b, ti] - \
-                        truth_x_all[b, ti].to(torch.int16).to(torch.float)
+                                            truth_x_all[b, ti].to(torch.int16).to(torch.float)
                     target[b, a, j, i, 1] = truth_y_all[b, ti] - \
-                        truth_y_all[b, ti].to(torch.int16).to(torch.float)
+                                            truth_y_all[b, ti].to(torch.int16).to(torch.float)
                     target[b, a, j, i, 2] = torch.log(
                         truth_w_all[b, ti] / torch.Tensor(self.masked_anchors)[best_n[ti], 0] + 1e-16)
                     target[b, a, j, i, 3] = torch.log(
@@ -234,4 +230,7 @@ class YOLOLayer(nn.Module):
         return loss, loss_xy, loss_wh, loss_obj, loss_cls
 
     def _gaussian_dist_pdf(self, val, mean, var):
+        '''
+        Gaussian distribution function.
+        '''
         return torch.exp(- (val - mean) ** 2.0 / var / 2.0) / torch.sqrt(2.0 * np.pi * var)

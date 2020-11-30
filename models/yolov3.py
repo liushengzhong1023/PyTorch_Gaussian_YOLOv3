@@ -4,6 +4,7 @@ import torch.nn as nn
 from collections import defaultdict
 from models.yolo_layer import YOLOLayer
 
+
 def add_conv(in_ch, out_ch, ksize, stride):
     """
     Add a conv2d / batchnorm / leaky ReLU block.
@@ -18,7 +19,9 @@ def add_conv(in_ch, out_ch, ksize, stride):
     stage = nn.Sequential()
     pad = (ksize - 1) // 2
     stage.add_module('conv', nn.Conv2d(in_channels=in_ch,
-                                       out_channels=out_ch, kernel_size=ksize, stride=stride,
+                                       out_channels=out_ch,
+                                       kernel_size=ksize,
+                                       stride=stride,
                                        padding=pad, bias=False))
     stage.add_module('batch_norm', nn.BatchNorm2d(out_ch))
     stage.add_module('leaky', nn.LeakyReLU(0.1))
@@ -34,6 +37,7 @@ class resblock(nn.Module):
         nblocks (int): number of residual blocks.
         shortcut (bool): if True, residual tensor addition is enabled.
     """
+
     def __init__(self, ch, nblocks=1, shortcut=True):
 
         super().__init__()
@@ -41,8 +45,8 @@ class resblock(nn.Module):
         self.module_list = nn.ModuleList()
         for i in range(nblocks):
             resblock_one = nn.ModuleList()
-            resblock_one.append(add_conv(ch, ch//2, 1, 1))
-            resblock_one.append(add_conv(ch//2, ch, 3, 1))
+            resblock_one.append(add_conv(ch, ch // 2, 1, 1))
+            resblock_one.append(add_conv(ch // 2, ch, 3, 1))
             self.module_list.append(resblock_one)
 
     def forward(self, x):
@@ -73,19 +77,19 @@ def create_yolov3_modules(config_model, ignore_thre):
     mlist.append(add_conv(in_ch=64, out_ch=128, ksize=3, stride=2))
     mlist.append(resblock(ch=128, nblocks=2))
     mlist.append(add_conv(in_ch=128, out_ch=256, ksize=3, stride=2))
-    mlist.append(resblock(ch=256, nblocks=8))    # shortcut 1 from here
+    mlist.append(resblock(ch=256, nblocks=8))  # shortcut 1 from here
     mlist.append(add_conv(in_ch=256, out_ch=512, ksize=3, stride=2))
-    mlist.append(resblock(ch=512, nblocks=8))    # shortcut 2 from here
+    mlist.append(resblock(ch=512, nblocks=8))  # shortcut 2 from here
     mlist.append(add_conv(in_ch=512, out_ch=1024, ksize=3, stride=2))
     mlist.append(resblock(ch=1024, nblocks=4))
 
     # YOLOv3
     mlist.append(resblock(ch=1024, nblocks=2, shortcut=False))
     mlist.append(add_conv(in_ch=1024, out_ch=512, ksize=1, stride=1))
+
     # 1st yolo branch
     mlist.append(add_conv(in_ch=512, out_ch=1024, ksize=3, stride=1))
-    mlist.append(
-         YOLOLayer(config_model, layer_no=0, in_ch=1024, ignore_thre=ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=0, in_ch=1024, ignore_thre=ignore_thre))
 
     mlist.append(add_conv(in_ch=512, out_ch=256, ksize=1, stride=1))
     mlist.append(nn.Upsample(scale_factor=2, mode='nearest'))
@@ -93,18 +97,18 @@ def create_yolov3_modules(config_model, ignore_thre):
     mlist.append(add_conv(in_ch=256, out_ch=512, ksize=3, stride=1))
     mlist.append(resblock(ch=512, nblocks=1, shortcut=False))
     mlist.append(add_conv(in_ch=512, out_ch=256, ksize=1, stride=1))
+
     # 2nd yolo branch
     mlist.append(add_conv(in_ch=256, out_ch=512, ksize=3, stride=1))
-    mlist.append(
-        YOLOLayer(config_model, layer_no=1, in_ch=512, ignore_thre=ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=1, in_ch=512, ignore_thre=ignore_thre))
 
+    # 3rd yolo branch
     mlist.append(add_conv(in_ch=256, out_ch=128, ksize=1, stride=1))
     mlist.append(nn.Upsample(scale_factor=2, mode='nearest'))
     mlist.append(add_conv(in_ch=384, out_ch=128, ksize=1, stride=1))
     mlist.append(add_conv(in_ch=128, out_ch=256, ksize=3, stride=1))
     mlist.append(resblock(ch=256, nblocks=2, shortcut=False))
-    mlist.append(
-         YOLOLayer(config_model, layer_no=2, in_ch=256, ignore_thre=ignore_thre))
+    mlist.append(YOLOLayer(config_model, layer_no=2, in_ch=256, ignore_thre=ignore_thre))
 
     return mlist
 
@@ -115,6 +119,7 @@ class YOLOv3(nn.Module):
     The network returns loss values from three YOLO layers during training \
     and detection results during test.
     """
+
     def __init__(self, config_model, ignore_thre=0.7):
         """
         Initialization of YOLOv3 class.
@@ -147,12 +152,14 @@ class YOLOv3(nn.Module):
         output = []
         self.loss_dict = defaultdict(float)
         route_layers = []
+
+        # iterate over YOLOv3 layers
         for i, module in enumerate(self.module_list):
-            # yolo layers
+            # yolo layers with output, evaluate their loss
             if i in [14, 22, 28]:
                 if train:
                     x, *loss_dict = module(x, targets)
-                    for name, loss in zip(['xy', 'wh', 'conf', 'cls'] , loss_dict):
+                    for name, loss in zip(['xy', 'wh', 'conf', 'cls'], loss_dict):
                         self.loss_dict[name] += loss
                 else:
                     x = module(x)
@@ -171,8 +178,9 @@ class YOLOv3(nn.Module):
                 x = torch.cat((x, route_layers[1]), 1)
             if i == 24:
                 x = torch.cat((x, route_layers[0]), 1)
+
+        # return neural network result
         if train:
             return sum(output)
         else:
             return torch.cat(output, 1)
-

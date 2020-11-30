@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--checkpoint_interval', type=int,
                         default=1000, help='interval between saving checkpoints')
     parser.add_argument('--eval_interval', type=int,
-                            default=4000, help='interval between evaluations')
+                        default=4000, help='interval between evaluations')
     parser.add_argument('--checkpoint', type=str,
                         help='pytorch checkpoint file path')
     parser.add_argument('--checkpoint_dir', type=str,
@@ -37,8 +37,8 @@ def parse_args():
     parser.add_argument('--use_cuda', type=bool, default=True)
     parser.add_argument('--debug', action='store_true', default=False,
                         help='debug mode where only one image is trained')
-    parser.add_argument(
-        '--tfboard_dir', help='tensorboard path for logging', type=str, default=None)
+    parser.add_argument('--tfboard_dir', help='tensorboard path for logging', type=str,
+                        default='/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/log')
     return parser.parse_args()
 
 
@@ -55,7 +55,6 @@ def main():
     # Parse config settings
     with open(args.cfg, 'r') as f:
         cfg = yaml.load(f)
-
     print("successfully loaded config file: ", cfg)
 
     momentum = cfg['TRAIN']['MOMENTUM']
@@ -69,9 +68,7 @@ def main():
     random_resize = cfg['AUGMENTATION']['RANDRESIZE']
     base_lr = cfg['TRAIN']['LR'] / batch_size / subdivision
     gradient_clip = cfg['TRAIN']['GRADIENT_CLIP']
-
-    print('effective_batch_size = batch_size * iter_size = %d * %d' %
-          (batch_size, subdivision))
+    print('effective_batch_size = batch_size * iter_size = %d * %d' % (batch_size, subdivision))
 
     # Make trainer behavior deterministic
     set_seed(seed=0)
@@ -79,6 +76,7 @@ def main():
 
     # Learning rate setup
     def burnin_schedule(i):
+        '''Learning rate: warmup --> constant --> decay by 10 --> decay by 100'''
         if i < burn_in:
             factor = pow(i / burn_in, 4)
         elif i < steps[0]:
@@ -104,7 +102,7 @@ def main():
             model.load_state_dict(state)
 
     if cuda:
-        print("using cuda") 
+        print("using cuda")
         model = model.cuda()
 
     if args.tfboard_dir:
@@ -116,20 +114,19 @@ def main():
 
     imgsize = cfg['TRAIN']['IMGSIZE']
     dataset = COCODataset(model_type=cfg['MODEL']['TYPE'],
-                  data_dir='COCO/',
-                  img_size=imgsize,
-                  augmentation=cfg['AUGMENTATION'],
-                  debug=args.debug)
+                          data_dir='COCO/',
+                          img_size=imgsize,
+                          augmentation=cfg['AUGMENTATION'],
+                          debug=args.debug)
 
-    dataloader = torch.utils.data.DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=args.n_cpu)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=args.n_cpu)
     dataiterator = iter(dataloader)
 
     evaluator = COCOAPIEvaluator(model_type=cfg['MODEL']['TYPE'],
-                    data_dir='COCO/',
-                    img_size=cfg['TEST']['IMGSIZE'],
-                    confthre=cfg['TEST']['CONFTHRE'],
-                    nmsthre=cfg['TEST']['NMSTHRE'])
+                                 data_dir='COCO/',
+                                 img_size=cfg['TEST']['IMGSIZE'],
+                                 confthre=cfg['TEST']['CONFTHRE'],
+                                 nmsthre=cfg['TEST']['NMSTHRE'])
 
     dtype = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
@@ -139,9 +136,9 @@ def main():
     params = []
     for key, value in params_dict.items():
         if 'conv.weight' in key:
-            params += [{'params':value, 'weight_decay':decay * batch_size * subdivision}]
+            params += [{'params': value, 'weight_decay': decay * batch_size * subdivision}]
         else:
-            params += [{'params':value, 'weight_decay':0.0}]
+            params += [{'params': value, 'weight_decay': 0.0}]
     optimizer = optim.SGD(params, lr=base_lr, momentum=momentum,
                           dampening=0, weight_decay=decay * batch_size * subdivision)
 
@@ -157,7 +154,7 @@ def main():
     # start training loop
     for iter_i in range(iter_state, iter_size + 1):
 
-        # COCO evaluation
+        # COCO evaluation per 4000 iterations
         if iter_i % args.eval_interval == 0:
             print('evaluating...')
             ap = evaluator.evaluate(model)
@@ -171,12 +168,13 @@ def main():
                 tblogger.add_scalar('val/aP5095_M', ap['aP5095_M'], iter_i)
                 tblogger.add_scalar('val/aP5095_L', ap['aP5095_L'], iter_i)
 
-        # subdivision loop
+        # subdivision loop, 16 sub-loops per iterations. 64 batch size in fact.
         optimizer.zero_grad()
         for inner_iter_i in range(subdivision):
             try:
                 imgs, targets, _, _ = next(dataiterator)  # load a batch
             except StopIteration:
+                # re-initialize the dataset
                 dataiterator = iter(dataloader)
                 imgs, targets, _, _ = next(dataiterator)  # load a batch
             imgs = Variable(imgs.type(dtype))
@@ -187,20 +185,22 @@ def main():
         if gradient_clip >= 0:
             torch.nn.utils.clip_grad_norm(model.parameters(), gradient_clip)
 
+        # optimization step after subdivision iterations (16)
         optimizer.step()
         scheduler.step()
 
         if iter_i % 10 == 0:
-            # logging
+            # logging the training loss
             current_lr = scheduler.get_lr()[0] * batch_size * subdivision
             print('[Iter %d/%d] [lr %f] '
                   '[Losses: xy %f, wh %f, conf %f, cls %f, total %f, imgsize %d]'
                   % (iter_i, iter_size, current_lr,
                      model.loss_dict['xy'], model.loss_dict['wh'],
-                     model.loss_dict['conf'], model.loss_dict['cls'], 
+                     model.loss_dict['conf'], model.loss_dict['cls'],
                      loss, imgsize),
                   flush=True)
 
+            # logging the tensorboard about training status
             if args.tfboard_dir:
                 # lr
                 tblogger.add_scalar('lr', current_lr, iter_i)
@@ -211,22 +211,23 @@ def main():
                 tblogger.add_scalar('train/loss_cls', model.loss_dict['cls'], iter_i)
                 tblogger.add_scalar('train/loss', loss, iter_i)
 
-            # random resizing
+            # random resizing every 10 iterations, x_size = y_size; redefine data loader and data iterator
             if random_resize:
                 imgsize = (random.randint(0, 9) % 10 + 10) * 32
                 dataset.img_shape = (imgsize, imgsize)
                 dataset.img_size = imgsize
-                dataloader = torch.utils.data.DataLoader(
-                    dataset, batch_size=batch_size, shuffle=True, num_workers=args.n_cpu)
+                dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+                                                         shuffle=True, num_workers=args.n_cpu)
                 dataiterator = iter(dataloader)
 
-        # save checkpoint
+        # save checkpoint per 1000 iterations
         if args.checkpoint_dir and iter_i > 0 and (iter_i % args.checkpoint_interval == 0):
-            torch.save({'iter': iter_i,
+            torch.save({
+                        'iter': iter_i,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         },
-                        os.path.join(args.checkpoint_dir, "snapshot"+str(iter_i)+".ckpt"))
+                       os.path.join(args.checkpoint_dir, "snapshot" + str(iter_i) + ".ckpt"))
 
     if args.tfboard_dir:
         tblogger.close()

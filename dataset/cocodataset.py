@@ -13,6 +13,7 @@ class COCODataset(Dataset):
     """
     COCO dataset class.
     """
+
     def __init__(self, model_type, data_dir='COCO', json_file='instances_train2017.json',
                  name='train2017', img_size=416,
                  augmentation=None, min_size=1, debug=False):
@@ -21,16 +22,19 @@ class COCODataset(Dataset):
         Args:
             model_type (str): model name specified in config file
             data_dir (str): dataset root directory
-            json_file (str): COCO json file name
+            json_file (str): COCO json file name; meta information (i.e., annotations) of the images.
             name (str): COCO data name (e.g. 'train2017' or 'val2017')
             img_size (int): target image size after pre-processing
             min_size (int): bounding boxes smaller than this are ignored
             debug (bool): if True, only one data id is selected from the dataset
         """
-        self.data_dir = data_dir
+        # hard-code the data_dir
+        # self.data_dir = data_dir
+        self.data_dir = "/home/sl29/data/COCO/"
+        self.image_dir = os.path.join(self.data_dir, "images")
         self.json_file = json_file
         self.model_type = model_type
-        self.coco = COCO(self.data_dir+'annotations/'+self.json_file)
+        self.coco = COCO(self.data_dir + 'annotations/' + self.json_file)
         self.ids = self.coco.getImgIds()
         if debug:
             self.ids = self.ids[1:2]
@@ -47,7 +51,6 @@ class COCODataset(Dataset):
         self.saturation = augmentation['SATURATION']
         self.exposure = augmentation['EXPOSURE']
         self.random_distort = augmentation['RANDOM_DISTORT']
-
 
     def __len__(self):
         return len(self.ids)
@@ -82,12 +85,12 @@ class COCODataset(Dataset):
             lrflip = True
 
         # load image and preprocess
-        img_file = os.path.join(self.data_dir, self.name,
+        img_file = os.path.join(self.image_dir, self.name,
                                 '{:012}'.format(id_) + '.jpg')
         img = cv2.imread(img_file)
 
         if self.json_file == 'instances_val5k.json' and img is None:
-            img_file = os.path.join(self.data_dir, 'train2017',
+            img_file = os.path.join(self.image_dir, 'train2017',
                                     '{:012}'.format(id_) + '.jpg')
             img = cv2.imread(img_file)
         assert img is not None
@@ -117,7 +120,7 @@ class COCODataset(Dataset):
             if 'YOLO' in self.model_type:
                 labels = label2yolobox(labels, info_img, self.img_size, lrflip)
             padded_labels[range(len(labels))[:self.max_labels]
-                          ] = labels[:self.max_labels]
+            ] = labels[:self.max_labels]
         padded_labels = torch.from_numpy(padded_labels)
 
         return img, padded_labels, info_img, id_
