@@ -293,6 +293,47 @@ def preprocess(img, imgsize, jitter, random_placing=False):
     return sized, info_img
 
 
+def preprocess_pad(img, new_size):
+    """
+    Image preprocess for yolo input
+    Pad the shorter side of the image and resize to (new_w, new_h)
+    Args:
+        img (numpy.ndarray): input image whose shape is :math:`(H, W, C)`.
+            Values range from 0 to 255.
+        imgsize (int): target image size after pre-processing
+        jitter (float): amplitude of jitter for resizing
+        random_placing (bool): if True, place the image at random position
+
+    Returns:
+        img (numpy.ndarray): input image whose shape is :math:`(C, imgsize, imgsize)`.
+            Values range from 0 to 1.
+        info_img : tuple of h, w, nh, nw, dx, dy.
+            h, w (int): original shape of the image
+            nh, nw (int): shape of the resized image without padding
+            dx, dy (int): pad size
+    """
+    h, w, _ = img.shape
+    w, h = int(w), int(h)
+
+    # BGR to RGB
+    img = img[:, :, ::-1]
+    assert img is not None
+
+    # place the image at center
+    dx = (new_size - w) // 2
+    dy = (new_size - h) // 2
+
+    # no new resize now
+    # img = cv2.resize(img, (w, h))
+
+    # padding
+    sized = np.ones((new_size, new_size, 3), dtype=np.uint8) * 127
+    sized[dy:dy + h, dx:dx + w, :] = img
+
+    info_img = (h, w, h, w, dx, dy)
+    return sized, info_img
+
+
 def rand_scale(s):
     """
     calculate random scaling factor

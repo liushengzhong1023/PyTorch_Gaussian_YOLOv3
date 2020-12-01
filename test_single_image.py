@@ -3,6 +3,7 @@ import argparse
 import yaml
 import os
 import cv2
+import time
 import torch
 
 from torch.autograd import Variable
@@ -14,7 +15,7 @@ from utils.vis_bbox import vis_bbox
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 
-def preprocess_image(image_path, imgsize, gpu=-1):
+def load_image(image_path, imgsize, gpu=-1):
     '''
     Read and pre-process the image.
     '''
@@ -33,7 +34,7 @@ def preprocess_image(image_path, imgsize, gpu=-1):
     else:
         img = Variable(img.type(torch.FloatTensor))
 
-    return img
+    return img, img_raw, info_img
 
 
 def main():
@@ -49,18 +50,25 @@ def main():
     # Path to the image file fo the demo
     image_path = './data/gaussian_yolov3/traffic_1.jpg'
 
+    # load coco classes
+    coco_class_names, coco_class_ids, coco_class_colors = get_coco_label_names()
+
     # Detection threshold
     detect_thresh = 0.3
 
     # Use CPU if gpu < 0 else use GPU
     gpu = 1
 
+    # Flag for visualize
+    visualize_flag = False
+
     # Load configs
     with open(cfg_path, 'r') as f:
         cfg = yaml.load(f)
 
     model_config = cfg['MODEL']
-    imgsize = cfg['TEST']['IMGSIZE']
+    # imgsize = cfg['TEST']['IMGSIZE']
+    imgsize = 1024
     nmsthre = cfg['TEST']['NMSTHRE']
     gaussian = cfg['MODEL']['GAUSSIAN']
 
@@ -88,16 +96,60 @@ def main():
         model.cuda()
 
     # load image
-    img = preprocess_image(image_path, imgsize, gpu)
+    img, img_raw, info_img = load_image(image_path, imgsize, gpu)
 
     # Inference and postprocess
     with torch.no_grad():
         outputs = model(img)
+
+        # evaluate inference time
+        # start = time.time()
+        #
+        # for _ in range(200):
+        #     outputs = model(img)
+        #
+        # end = time.time()
+        # print("Average inference time: " + str((end - start) / 200))
         outputs = postprocess(outputs, 80, confthre, nmsthre)
 
     if outputs[0] is None:
         print("No Objects Deteted!!")
         sys.exit(0)
+
+    # visualize the detection
+    bboxes = list()
+    classes = list()
+    scores = list()
+    colors = list()
+    sigmas = list()
+
+    for output in outputs[0]:
+        x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
+        if gaussian:
+            sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
+            sigmas.append([sigma_x, sigma_y, sigma_w, sigma_h])
+            print(torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])))
+
+        cls_id = coco_class_ids[int(cls_pred)]
+        box = yolobox2label([y1, x1, y2, x2], info_img)
+
+        # update box list
+        bboxes.append(box)
+        classes.append(cls_id)
+        scores.append(cls_conf * conf)
+        colors.append(coco_class_colors[int(cls_pred)])
+
+        # image size scale used for sigma visualization
+        h, w, nh, nw, _, _ = info_img
+        sigma_scale_img = (w / nw, h / nh)
+
+    if visualize_flag:
+        fig, ax = vis_bbox(
+            img_raw, bboxes, label=classes, score=scores, label_names=coco_class_names, sigma=sigmas,
+            sigma_scale_img=sigma_scale_img,
+            sigma_scale_xy=2., sigma_scale_wh=2.,  # 2-sigma
+            show_inner_bound=False,  # do not show inner rectangle for simplicity
+            instance_colors=colors, linewidth=3)
 
 
 if __name__ == '__main__':

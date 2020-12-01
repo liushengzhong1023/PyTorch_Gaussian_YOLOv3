@@ -62,6 +62,7 @@ def vis_bbox(img, bbox, label=None, score=None, label_names=None, instance_color
         ax = plt.axes([0, 0, 1, 1])
     ax.imshow(img.transpose((1, 2, 0)).astype(np.uint8))
     ax.axis('off')
+
     # If there is no bounding box to display, visualize the image and exit.
     if len(bbox) == 0:
         return ax
