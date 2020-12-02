@@ -99,9 +99,9 @@ def visualize_image_detections(img_raw, detections):
                     text=cls + ", score:%.2f, var:%.2f" % (conf, var),
                     org=(min_width, min_height - 10),
                     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.9,
+                    fontScale=0.5,
                     color=box_color,
-                    thickness=2)
+                    thickness=1.5)
 
     # show the image
     cv2.imshow('image', image)
@@ -123,7 +123,6 @@ def main():
     ckpt_path = './weights/gaussian_yolov3_coco.pth'
 
     # Path to the image file fo the demo
-    image_path = './data/gaussian_yolov3/traffic_1.jpg'
     segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
 
     # load coco classes
@@ -134,9 +133,6 @@ def main():
 
     # Use CPU if gpu < 0 else use GPU
     gpu = 1
-
-    # Flag for visualize
-    visualize_flag = False
 
     # Load configs
     with open(cfg_path, 'r') as f:
