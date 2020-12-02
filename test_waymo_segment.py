@@ -101,7 +101,7 @@ def visualize_image_detections(img_raw, detections):
                     fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                     fontScale=0.5,
                     color=box_color,
-                    thickness=1.5)
+                    thickness=2)
 
     # show the image
     cv2.imshow('image', image)
