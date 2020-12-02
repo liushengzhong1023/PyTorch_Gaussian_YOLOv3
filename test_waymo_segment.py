@@ -51,7 +51,8 @@ def load_image(image_path, new_size, gpu=-1):
     img = cv2.imread(image_path)
 
     # Preprocess image, save the raw image in RGB, dimensions [color, h, w]
-    img_raw = img.copy()[:, :, ::-1].transpose((2, 0, 1))
+    # img_raw = img.copy()[:, :, ::-1].transpose((2, 0, 1))
+    img_raw = img.copy()
     img, info_img = preprocess_pad(img, new_size)  # info = (h, w, nh, nw, dx, dy)
 
     # normalize the image
@@ -69,11 +70,45 @@ def load_image(image_path, new_size, gpu=-1):
     return img, img_raw, info_img
 
 
-def visualize_image_detections(image, detections):
+def visualize_image_detections(img_raw, detections):
     '''
     Visualize the detection results of an image.
     '''
-    pass
+    h, w, nh, nw, dx, dy = (1280, 1920, 1280, 1920, 0, 320)
+
+    image = img_raw
+    # add all detection boxes
+    for detection in detections:
+        min_width, min_height, max_width, max_height = detection['box']
+
+        # minus the shift
+        min_height -= dy
+        max_height -= dy
+        min_width -= dx
+        max_width -= dx
+
+        start_point = (int(min_width), int(min_height))
+        end_point = (int(max_width), int(max_height))
+        cls = detection['class']
+        conf = detection['conf_score']
+        var = detection['variance']
+        box_color = detection['color']
+
+        image = cv2.rectangle(image, start_point, end_point, box_color, thickness=2)
+        cv2.putText(image,
+                    text=cls + ", score:%.2f, var:%.2f" % (conf, var),
+                    org=(min_width, min_height - 10),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9,
+                    color=box_color,
+                    thickness=2)
+
+    # show the image
+    cv2.imshow('image', image)
+
+    # wait for the delay
+    delay = 0
+    cv2.waitKey(delay)
 
 
 def main():
@@ -173,13 +208,15 @@ def main():
         scores = list()
         colors = list()
         sigmas = list()
+        detections = list()
 
         for output in outputs[0]:
             x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
             if gaussian:
                 sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
                 sigmas.append([sigma_x, sigma_y, sigma_w, sigma_h])
-                print(torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])))
+                mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy()
+                # print(mean_sigma)
 
             cls_id = coco_class_ids[int(cls_pred)]
             box = yolobox2label([y1, x1, y2, x2], info_img)
@@ -189,10 +226,20 @@ def main():
             classes.append(cls_id)
             scores.append(cls_conf * conf)
             colors.append(coco_class_colors[int(cls_pred)])
+            box_color = coco_class_colors[int(cls_pred)]
+            detections.append({
+                'box': [x1, y1, x2, y2],
+                'class': coco_class_names[int(cls_pred) + 1],
+                'conf_score': (cls_conf * conf).cpu().numpy(),
+                'variance': mean_sigma if gaussian else 0,
+                'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
+            })
 
-            # image size scale used for sigma visualization
-            h, w, nh, nw, _, _ = info_img
-            sigma_scale_img = (w / nw, h / nh)
+        # visualize the detection result
+        visualize_image_detections(img_raw, detections)
+
+    # finish display
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
