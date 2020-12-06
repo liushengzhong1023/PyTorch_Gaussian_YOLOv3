@@ -115,7 +115,7 @@ def visualize_image_detections(img_raw, detections):
     cv2.waitKey(delay)
 
 
-def test_prediction_temporal_correlation(segmentation_detections, segmentation_labels):
+def test_temporal_correlation_with_groundtruth(segmentation_detections, segmentation_labels):
     '''
     Test the correlation across frames in a vide segment.
     '''
@@ -127,6 +127,7 @@ def test_prediction_temporal_correlation(segmentation_detections, segmentation_l
 
         for detected_box in detected_boxes:
             dt_class = detected_box['cls_pred']
+            dt_class_name = detected_box['class']
             dt_x1, dt_y1, dt_x2, dt_y2 = detected_box['box']
             dt_conf_score = detected_box['conf_score']
             dt_variance = detected_box['variance']
@@ -141,7 +142,7 @@ def test_prediction_temporal_correlation(segmentation_detections, segmentation_l
                 iou = get_iou({'x1': dt_x1, 'y1': dt_y1, 'x2': dt_x2, 'y2': dt_y2},
                               {'x1': gt_x1, 'y1': gt_y1, 'x2': gt_x2, 'y2': gt_y2})
 
-                if iou > 0.9:
+                if iou > 0.5:
                     if matched_flag:
                         print("The detected box is matched with two gt boxes!")
 
@@ -149,9 +150,11 @@ def test_prediction_temporal_correlation(segmentation_detections, segmentation_l
                         object_list[gt_object_id] = dict()
                         object_list[gt_object_id]['conf_list'] = []
                         object_list[gt_object_id]['variance_list'] = []
+                        object_list[gt_object_id]['predicted_class_list'] = []
 
                     object_list[gt_object_id]['conf_list'].append(dt_conf_score)
                     object_list[gt_object_id]['variance_list'].append(dt_variance)
+                    object_list[gt_object_id]['predicted_class_list'].append(dt_class_name)
                     matched_flag = True
 
     # analyze the object prediction confs
@@ -169,6 +172,79 @@ def test_prediction_temporal_correlation(segmentation_detections, segmentation_l
         print("Prediction confidence var: %f" % conf_var)
         print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
         print("Location regression var: %f" % variance_var)
+        # print("Prediction class true list: ")
+        # print(object_list[gt_object_id]['predicted_class_list'])
+        print()
+
+    print("------------------------------------------------------------------------")
+    mean_conf_var = np.mean(conf_var_list)
+    mean_variance_var = np.mean(variance_var_list)
+    print("Mean of prediction confidence var on object: %f" % mean_conf_var)
+    print("Mean of location regression var: %f" % mean_variance_var)
+
+
+def test_temporal_correlation_with_tubelet(segmentation_detections):
+    '''
+    Evaluate the temporal correlations of objects in the consecutive frames, without groundtruth input.
+    '''
+    # object_id: {conf_list, variance_list, predicted_class_list, box_position}
+    object_list = dict()
+    next_object_id = 0
+
+    for image_time in segmentation_detections:
+        detected_boxes = segmentation_detections[image_time]
+
+        for detected_box in detected_boxes:
+            dt_class = detected_box['cls_pred']
+            dt_class_name = detected_box['class']
+            dt_x1, dt_y1, dt_x2, dt_y2 = detected_box['box']
+            dt_conf_score = detected_box['conf_score']
+            dt_variance = detected_box['variance']
+            matched_flag = False
+
+            for object_id in object_list:
+                obj_x1, obj_y1, obj_x2, obj_y2 = object_list[object_id]['box_position']
+
+                # compute IoU score
+                iou = get_iou({'x1': dt_x1, 'y1': dt_y1, 'x2': dt_x2, 'y2': dt_y2},
+                              {'x1': obj_x1, 'y1': obj_y1, 'x2': obj_x2, 'y2': obj_y2})
+
+                if iou > 0.5:
+                    matched_flag = True
+
+                    # update corresponding object
+                    object_list[object_id]['conf_list'].append(dt_conf_score)
+                    object_list[object_id]['variance_list'].append(dt_variance)
+                    object_list[object_id]['predicted_class_list'].append(dt_class_name)
+                    object_list[object_id]['box_position'] = [dt_x1, dt_y1, dt_x2, dt_y2]
+
+            if not matched_flag:
+                object = {
+                    'conf_list': [dt_conf_score],
+                    'variance_list': [dt_variance],
+                    'predicted_class_list': [dt_class_name],
+                    'box_position': [dt_x1, dt_y1, dt_x2, dt_y2]
+                }
+                object_list[next_object_id] = object
+                next_object_id += 1
+
+    # analyze the object prediction confs
+    conf_var_list = []
+    variance_var_list = []
+
+    for object_id in object_list:
+        conf_var = np.var(object_list[object_id]['conf_list'])
+        variance_var = np.var(object_list[object_id]['variance_list'])
+        conf_var_list.append(conf_var)
+        variance_var_list.append(variance_var)
+
+        print(object_id)
+        print("Mean prediction confidence: %f" % np.mean(object_list[object_id]['conf_list']))
+        print("Prediction confidence var: %f" % conf_var)
+        print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
+        print("Location regression var: %f" % variance_var)
+        print("Predicted classes: ")
+        print(object_list[object_id]['predicted_class_list'])
         print()
 
     print("------------------------------------------------------------------------")
@@ -321,7 +397,8 @@ def main():
     cv2.destroyAllWindows()
 
     # analyze segment detection correlations
-    test_prediction_temporal_correlation(segment_detections, segment_labels)
+    # test_temporal_correlation_with_groundtruth(segment_detections, segment_labels)
+    test_temporal_correlation_with_tubelet(segment_detections)
 
     end = time.time()
     print("------------------------------------------------------------------------")
