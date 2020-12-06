@@ -389,7 +389,8 @@ def get_coco_label_names():
     COCO label names and correspondence between the model's class index and COCO class index.
     Returns:
         coco_label_names (tuple of str) : all the COCO label names including background class.
-        coco_class_ids (list of int) : index of 80 classes that are used in 'instance' annotations
+        coco_class_ids (list of int) : index of 80 classes that are used in 'instance' annotations;
+                                       used in the COCO groundtruth.
         coco_cls_colors (np.ndarray) : randomly generated color vectors used for box visualization
 
     """
