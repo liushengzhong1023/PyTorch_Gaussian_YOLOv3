@@ -19,6 +19,30 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 waymo_classes = {0: 'unknown', 1: 'vehicle', 2: 'pedestrian', 3: 'sign', 4: 'cyclist'}
 waymo_to_coco = {0: 10, 1: 2, 2: 0, 3: 11, 4: 1}  # from waymo to coco
 
+# -------------------------------------------- COCO Util Functions ----------------------------------
+coco_class_names = (  # 'background',  # class zero
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'car',  # 'truck',
+    'boat', 'traffic light', 'fire hydrant', 'street sign', 'stop sign',
+    'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
+    'elephant', 'bear', 'zebra', 'giraffe', 'hat', 'backpack', 'umbrella',
+    'shoe', 'eye glasses', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis',
+    'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
+    'skateboard', 'surfboard', 'tennis racket', 'bottle', 'plate', 'wine glass',
+    'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich',
+    'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair',
+    'couch', 'potted plant', 'bed', 'mirror', 'dining table', 'window', 'desk',
+    'toilet', 'door', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone',
+    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'blender', 'book',
+    'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+)
+
+coco_class_colors = np.empty(shape=(0, 3), dtype=np.int)
+palette = sns.color_palette(n_colors=len(coco_class_names))
+for color in palette:
+    r, g, b = color[0] * 255, color[1] * 255, color[2] * 255
+    rgb = np.array([int(r), int(g), int(b)])
+    coco_class_colors = np.append(coco_class_colors, rgb[None, :], axis=0)
+
 
 # -------------------------------------------- Waymo Util Functions ----------------------------------
 def read_segment_labels(segment_path):
@@ -127,7 +151,7 @@ def test_temporal_correlation_with_groundtruth(segmentation_detections, segmenta
 
         for detected_box in detected_boxes:
             dt_class = detected_box['cls_pred']
-            dt_class_name = detected_box['class']
+            dt_class_name = coco_class_names[dt_class]
             dt_x1, dt_y1, dt_x2, dt_y2 = detected_box['box']
             dt_conf_score = detected_box['conf_score']
             dt_variance = detected_box['variance']
@@ -142,12 +166,14 @@ def test_temporal_correlation_with_groundtruth(segmentation_detections, segmenta
                 iou = get_iou({'x1': dt_x1, 'y1': dt_y1, 'x2': dt_x2, 'y2': dt_y2},
                               {'x1': gt_x1, 'y1': gt_y1, 'x2': gt_x2, 'y2': gt_y2})
 
-                if iou > 0.5:
+                if iou > 0.7:
                     if matched_flag:
                         print("The detected box is matched with two gt boxes!")
 
                     if gt_object_id not in object_list:
                         object_list[gt_object_id] = dict()
+                        object_list[gt_object_id]['gt_class'] = coco_class_names[gt_class]
+                        object_list[gt_object_id]['gt_appearances'] = 0
                         object_list[gt_object_id]['conf_list'] = []
                         object_list[gt_object_id]['variance_list'] = []
                         object_list[gt_object_id]['predicted_class_list'] = []
@@ -157,23 +183,45 @@ def test_temporal_correlation_with_groundtruth(segmentation_detections, segmenta
                     object_list[gt_object_id]['predicted_class_list'].append(dt_class_name)
                     matched_flag = True
 
+        # count groundtruth box apeearance
+        for gt_box in gt_boxes:
+            gt_object_id = gt_box['object_id']
+            gt_class = waymo_to_coco[int(gt_box['class'])]
+
+            if gt_object_id not in object_list:
+                object_list[gt_object_id] = dict()
+                object_list[gt_object_id]['gt_class'] = coco_class_names[gt_class]
+                object_list[gt_object_id]['gt_appearances'] = 0
+                object_list[gt_object_id]['conf_list'] = []
+                object_list[gt_object_id]['variance_list'] = []
+                object_list[gt_object_id]['predicted_class_list'] = []
+
+            object_list[gt_object_id]['gt_appearances'] += 1
+
     # analyze the object prediction confs
     conf_var_list = []
     variance_var_list = []
 
     for object_id in object_list:
-        conf_var = np.var(object_list[object_id]['conf_list'])
-        variance_var = np.var(object_list[object_id]['variance_list'])
-        conf_var_list.append(conf_var)
-        variance_var_list.append(variance_var)
-
         print(object_id)
-        print("Mean prediction confidence: %f" % np.mean(object_list[object_id]['conf_list']))
-        print("Prediction confidence var: %f" % conf_var)
-        print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
-        print("Location regression var: %f" % variance_var)
-        # print("Prediction class true list: ")
-        # print(object_list[gt_object_id]['predicted_class_list'])
+        print("Groundtruth class: " + object_list[object_id]['gt_class'])
+        print("Groundtruth appearance times: %s" % object_list[object_id]['gt_appearances'])
+        print("Detected times: %s" % len(object_list[object_id]['predicted_class_list']))
+        print("Prediction class list: ")
+        print(object_list[object_id]['predicted_class_list'])
+
+        if not object_list[object_id]['conf_list']:
+            pass
+        else:
+            conf_var = np.var(object_list[object_id]['conf_list'])
+            variance_var = np.var(object_list[object_id]['variance_list'])
+            conf_var_list.append(conf_var)
+            variance_var_list.append(variance_var)
+
+            print("Mean prediction confidence: %f" % np.mean(object_list[object_id]['conf_list']))
+            print("Prediction confidence var: %f" % conf_var)
+            print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
+            print("Location regression var: %f" % variance_var)
         print()
 
     print("------------------------------------------------------------------------")
@@ -267,10 +315,8 @@ def main():
     ckpt_path = './weights/gaussian_yolov3_coco.pth'
 
     # Path to the image file fo the demo
-    segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
-
-    # load coco classes
-    coco_class_names, coco_class_ids, coco_class_colors = get_coco_label_names()
+    # segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
+    segment_path = '/home/sl29/data/Waymo/validation_images/segment-11037651371539287009'
 
     # Detection threshold
     detect_thresh = 0.3
@@ -347,11 +393,6 @@ def main():
             sys.exit(0)
 
         # visualize the detection
-        bboxes = list()
-        classes = list()
-        scores = list()
-        colors = list()
-        sigmas = list()
         detections = list()
 
         for output in outputs[0]:
@@ -365,22 +406,15 @@ def main():
 
             if gaussian:
                 sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
-                sigmas.append([sigma_x, sigma_y, sigma_w, sigma_h])
                 mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
                 # print(mean_sigma)
 
-            cls_id = coco_class_ids[int(cls_pred)]
             box = yolobox2label([y1, x1, y2, x2], info_img)
 
             # update box list
-            bboxes.append(box)
-            classes.append(cls_id)
-            scores.append(cls_conf * conf)
-            colors.append(coco_class_colors[int(cls_pred)])
             box_color = coco_class_colors[int(cls_pred)]
             detections.append({
                 'box': [x1, y1, x2, y2],  # coordinates in the original image
-                'class': coco_class_names[int(cls_pred) + 1],
                 'cls_pred': int(cls_pred),
                 'conf_score': (cls_conf * conf).cpu().numpy().item(),
                 'variance': mean_sigma if gaussian else 0,
@@ -397,8 +431,8 @@ def main():
     cv2.destroyAllWindows()
 
     # analyze segment detection correlations
-    # test_temporal_correlation_with_groundtruth(segment_detections, segment_labels)
-    test_temporal_correlation_with_tubelet(segment_detections)
+    test_temporal_correlation_with_groundtruth(segment_detections, segment_labels)
+    # test_temporal_correlation_with_tubelet(segment_detections)
 
     end = time.time()
     print("------------------------------------------------------------------------")
