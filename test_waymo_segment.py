@@ -14,7 +14,7 @@ from utils.parse_yolo_weights import parse_yolo_weights
 from utils.vis_bbox import vis_bbox
 from utils.IoU import get_iou
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 waymo_classes = {0: 'unknown', 1: 'vehicle', 2: 'pedestrian', 3: 'sign', 4: 'cyclist'}
 waymo_to_coco = {0: 10, 1: 2, 2: 0, 3: 11, 4: 1}  # from waymo to coco
@@ -117,7 +117,7 @@ def visualize_image_detections(img_raw, detections):
 
         start_point = (int(min_width), int(min_height))
         end_point = (int(max_width), int(max_height))
-        cls = detection['class']
+        cls = coco_class_names[detection['cls_pred']]
         conf = detection['conf_score']
         var = detection['variance']
         box_color = detection['color']
@@ -316,10 +316,10 @@ def main():
 
     # Path to the image file fo the demo
     # segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
-    segment_path = '/home/sl29/data/Waymo/validation_images/segment-11037651371539287009'
+    segment_path = '/home/sl29/data/Waymo/validation_images/segment-14127943473592757944'
 
     # Detection threshold
-    detect_thresh = 0.3
+    detect_thresh = 0.7
 
     # Use CPU if gpu < 0 else use GPU
     gpu = 1
@@ -390,42 +390,40 @@ def main():
 
         if outputs[0] is None:
             print("No Objects Deteted!!")
-            sys.exit(0)
+            # sys.exit(0)
+        else:
+            # visualize the detection
+            detections = list()
 
-        # visualize the detection
-        detections = list()
+            for output in outputs[0]:
+                x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
 
-        for output in outputs[0]:
-            x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
+                # minus the shift
+                y1 -= dy
+                y2 -= dy
+                x1 -= dx
+                x2 -= dx
 
-            # minus the shift
-            y1 -= dy
-            y2 -= dy
-            x1 -= dx
-            x2 -= dx
+                if gaussian:
+                    sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
+                    mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
+                    # print(mean_sigma)
 
-            if gaussian:
-                sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
-                mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
-                # print(mean_sigma)
+                # update box list
+                box_color = coco_class_colors[int(cls_pred)]
+                detections.append({
+                    'box': [x1, y1, x2, y2],  # coordinates in the original image
+                    'cls_pred': int(cls_pred),
+                    'conf_score': (cls_conf * conf).cpu().numpy().item(),
+                    'variance': mean_sigma if gaussian else 0,
+                    'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
+                })
 
-            box = yolobox2label([y1, x1, y2, x2], info_img)
-
-            # update box list
-            box_color = coco_class_colors[int(cls_pred)]
-            detections.append({
-                'box': [x1, y1, x2, y2],  # coordinates in the original image
-                'cls_pred': int(cls_pred),
-                'conf_score': (cls_conf * conf).cpu().numpy().item(),
-                'variance': mean_sigma if gaussian else 0,
-                'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
-            })
-
-        # visualize the detection result
-        # visualize_image_detections(img_raw, detections)
+            # visualize the detection result
+            visualize_image_detections(img_raw, detections)
 
         # save the frame detection results
-        segment_detections[image_time] = detections
+        # segment_detections[image_time] = detections
 
     # finish display
     cv2.destroyAllWindows()

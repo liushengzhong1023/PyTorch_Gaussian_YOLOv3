@@ -102,7 +102,6 @@ def main():
     '''
     Main function of test an image.
     '''
-    start = time.time()
     # -------------------------------------------- Load Model Config ----------------------------------
     # Choose config file for this demo
     cfg_path = './config/gaussian_yolov3_eval.cfg'
@@ -116,7 +115,7 @@ def main():
     segment_list = os.listdir(validation_path)
 
     # Detection threshold
-    detect_thresh = 0.3
+    detect_thresh = 0.5
 
     # Use CPU if gpu < 0 else use GPU
     gpu = 1
@@ -157,6 +156,8 @@ def main():
     # ----------------------------------- Load Waymo Data & Inference ----------------------------------
     for segment in segment_list:
         print("Evaluating: " + segment)
+        start = time.time()
+
         # input and output
         segment_path = os.path.join(validation_path, segment)
         output_file = os.path.join(output_path, segment + '.json')
@@ -192,45 +193,45 @@ def main():
                 outputs = postprocess(outputs, 80, confthre, nmsthre)
 
             if outputs[0] is None:
-                print("No Objects Deteted!!")
-                sys.exit(0)
+                print("No Objects Deteted at time: " + image_name)
 
             # visualize the detection
             detections = list()
 
-            for output in outputs[0]:
-                x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
-                x1 = x1.item()
-                y1 = y1.item()
-                x2 = x2.item()
-                y2 = y2.item()
-                cls_pred = cls_pred.item()
-                conf = conf.item()
-                cls_conf = cls_conf.item()
+            if outputs[0] is not None:
+                for output in outputs[0]:
+                    x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
+                    x1 = x1.item()
+                    y1 = y1.item()
+                    x2 = x2.item()
+                    y2 = y2.item()
+                    cls_pred = cls_pred.item()
+                    conf = conf.item()
+                    cls_conf = cls_conf.item()
 
-                # minus the shift
-                y1 -= dy
-                y2 -= dy
-                x1 -= dx
-                x2 -= dx
+                    # minus the shift
+                    y1 -= dy
+                    y2 -= dy
+                    x1 -= dx
+                    x2 -= dx
 
-                if gaussian:
-                    sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
-                    mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
+                    if gaussian:
+                        sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
+                        mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
 
-                # update box list
-                cls_pred = int(cls_pred)
-                box_color = coco_class_colors[cls_pred]
-                detections.append({
-                    'box_value': [x1, y1, x2, y2],  # coordinates in the original image
-                    'coco_cls_pred': cls_pred,
-                    'coco_::cls_name': coco_class_names[cls_pred],
-                    'objectness_score': conf,
-                    'class_conf': cls_conf,
-                    'conf_score': cls_conf * conf,
-                    'variance': mean_sigma if gaussian else 0,
-                    'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
-                })
+                    # update box list
+                    cls_pred = int(cls_pred)
+                    box_color = coco_class_colors[cls_pred]
+                    detections.append({
+                        'box_value': [x1, y1, x2, y2],  # coordinates in the original image
+                        'coco_cls_pred': cls_pred,
+                        'coco_cls_name': coco_class_names[cls_pred],
+                        'objectness_score': conf,
+                        'class_conf': cls_conf,
+                        'conf_score': cls_conf * conf,
+                        'variance': mean_sigma if gaussian else 0,
+                        'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
+                    })
 
             # save the frame detection results
             segment_detections[image_time] = detections
