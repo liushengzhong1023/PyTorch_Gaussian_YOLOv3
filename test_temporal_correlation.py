@@ -166,7 +166,8 @@ def main():
     # -------------------------------------------- Load Model Config ----------------------------------
     # Path to the image file fo the demo
     validation_path = '/home/sl29/data/Waymo/validation_images'
-    segment_name = 'segment-16751706457322889693'
+    # segment_name = 'segment-16751706457322889693'
+    segment_name = 'segment-4816728784073043251'
     segment_path = os.path.join(validation_path, segment_name)
 
     # detection path
