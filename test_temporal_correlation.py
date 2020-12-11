@@ -71,6 +71,9 @@ def test_temporal_correlation_with_groundtruth(image_time_list, segmentation_det
     Test the correlation across frames in a vide segment.
     '''
     object_list = dict()
+    total_count = 0
+    wrong_prediction_count = 0
+    wrong_prediction_pairs = 0
 
     for image_time in image_time_list:
         gt_boxes = segmentation_labels[image_time]['FRONT']
@@ -96,6 +99,7 @@ def test_temporal_correlation_with_groundtruth(image_time_list, segmentation_det
                 if iou > 0.7:
                     if matched_flag:
                         print("The detected box is matched with two gt boxes!")
+                        break
 
                     if gt_object_id not in object_list:
                         object_list[gt_object_id] = dict()
@@ -109,6 +113,15 @@ def test_temporal_correlation_with_groundtruth(image_time_list, segmentation_det
                     object_list[gt_object_id]['variance_list'].append(dt_variance)
                     object_list[gt_object_id]['predicted_class_list'].append(dt_class_name)
                     matched_flag = True
+
+                    # count prediction stats
+                    total_count += 1
+                    if dt_class != gt_class:
+                        wrong_prediction_count += 1
+
+                        if len(object_list[gt_object_id]['predicted_class_list']) > 1 and \
+                                object_list[gt_object_id]['predicted_class_list'][-2] != gt_class:
+                            wrong_prediction_pairs += 1
 
         # count groundtruth box apeearance
         for gt_box in gt_boxes:
@@ -130,32 +143,45 @@ def test_temporal_correlation_with_groundtruth(image_time_list, segmentation_det
     variance_var_list = []
 
     for object_id in object_list:
-        print(object_id)
-        print("Groundtruth class: " + object_list[object_id]['gt_class'])
-        print("Groundtruth appearance times: %s" % object_list[object_id]['gt_appearances'])
-        print("Detected times: %s" % len(object_list[object_id]['predicted_class_list']))
-        print("Prediction class list: ")
-        print(object_list[object_id]['predicted_class_list'])
-
         if not object_list[object_id]['conf_list']:
             pass
         else:
+            if object_list[object_id]['gt_class'] != object_list[object_id]['predicted_class_list'][0]:
+                print(object_id)
+                print("Groundtruth class: " + object_list[object_id]['gt_class'])
+                print("Groundtruth appearance times: %s" % object_list[object_id]['gt_appearances'])
+                print("Detected times: %s" % len(object_list[object_id]['predicted_class_list']))
+                print("Prediction class list: ")
+                print(object_list[object_id]['predicted_class_list'])
+                print()
+
             conf_var = np.var(object_list[object_id]['conf_list'])
             variance_var = np.var(object_list[object_id]['variance_list'])
             conf_var_list.append(conf_var)
             variance_var_list.append(variance_var)
 
-            print("Mean prediction confidence: %f" % np.mean(object_list[object_id]['conf_list']))
-            print("Prediction confidence var: %f" % conf_var)
-            print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
-            print("Location regression var: %f" % variance_var)
-        print()
+            # print("Mean prediction confidence: %f" % np.mean(object_list[object_id]['conf_list']))
+            # print("Prediction confidence var: %f" % conf_var)
+            # print("Mean regression variance: %f" % np.mean(object_list[object_id]['variance_list']))
+            # print("Location regression var: %f" % variance_var)
+        # print()
 
     print("------------------------------------------------------------------------")
     mean_conf_var = np.mean(conf_var_list)
     mean_variance_var = np.mean(variance_var_list)
     print("Mean of prediction confidence var on object: %f" % mean_conf_var)
     print("Mean of location regression var: %f" % mean_variance_var)
+
+    wrong_prediction_ratio = wrong_prediction_count / (total_count + 1e-9)
+    wrong_prediction_pair_ratio = wrong_prediction_pairs / (total_count + 1e-9)
+    print("Misprediction ratio %f, conditioned misprediction ratio %f " %
+          (wrong_prediction_ratio, wrong_prediction_pair_ratio))
+
+    return {
+        'total_predictions': total_count,
+        'mispredictions': wrong_prediction_count,
+        'misprediction_pairs': wrong_prediction_pairs
+    }
 
 
 def main():
@@ -166,31 +192,51 @@ def main():
     # -------------------------------------------- Load Model Config ----------------------------------
     # Path to the image file fo the demo
     validation_path = '/home/sl29/data/Waymo/validation_images'
-    # segment_name = 'segment-16751706457322889693'
-    segment_name = 'segment-4816728784073043251'
-    segment_path = os.path.join(validation_path, segment_name)
+    segment_name = 'segment-16751706457322889693'
 
     # detection path
     detection_path = '/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/' \
                      'waymo_detections/full_frame_detections'
-    segment_detection_file = os.path.join(detection_path, segment_name + '.json')
-    with open(segment_detection_file, 'r') as f:
-        segment_detections = json.load(f)
 
     # ----------------------------------- Load Waymo Data & Inference ----------------------------------
-    # read the labels
-    segment_labels = read_segment_labels(segment_path)
+    segment_name_list = os.listdir(validation_path)
 
-    # image name list
-    image_time_list = list(segment_labels.keys())
-    image_time_list.sort()
+    total_predictions = 0
+    mispredictions = 0
+    misprediction_pairs = 0
 
-    # test the temporal correlation
-    test_temporal_correlation_with_groundtruth(image_time_list, segment_detections, segment_labels)
+    for segment_name in segment_name_list:
+        # segment path
+        segment_path = os.path.join(validation_path, segment_name)
+        segment_detection_file = os.path.join(detection_path, segment_name + '.json')
+        with open(segment_detection_file, 'r') as f:
+            segment_detections = json.load(f)
 
-    end = time.time()
-    print("------------------------------------------------------------------------")
-    print("Segment execution time: %f s" % (end - start))
+        # read the labels
+        segment_labels = read_segment_labels(segment_path)
+
+        # image name list
+        image_time_list = list(segment_labels.keys())
+        image_time_list.sort()
+
+        # test the temporal correlation
+        predictions = test_temporal_correlation_with_groundtruth(image_time_list, segment_detections, segment_labels)
+
+        # update global stats
+        total_predictions += predictions['total_predictions']
+        mispredictions += predictions['mispredictions']
+        misprediction_pairs += predictions['misprediction_pairs']
+
+        end = time.time()
+        print("------------------------------------------------------------------------")
+        wrong_prediction_ratio = mispredictions / (total_predictions + 1e-9)
+        wrong_prediction_pair_ratio = misprediction_pairs / (total_predictions + 1e-9)
+        print("Global misprediction ratio %f, conditioned misprediction ratio %f " %
+              (wrong_prediction_ratio, wrong_prediction_pair_ratio))
+        print("Total predictions: %s" % total_predictions)
+        print("Mispredictions: %s" % mispredictions)
+        print("Misprediction pairs: %s" % misprediction_pairs)
+        print("Segment execution time: %f s" % (end - start))
 
 
 if __name__ == '__main__':
