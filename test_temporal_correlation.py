@@ -14,6 +14,14 @@ from utils.parse_yolo_weights import parse_yolo_weights
 from utils.vis_bbox import vis_bbox
 from utils.IoU import get_iou
 
+'''
+COCO to Waymo mapping:
+Person -> PEDESTRIAN;
+car, bus, truck, train, airplane, motorcycle -> VEHICLE; (*)
+stop sign -> SIGN;
+bicycle -> CYCLIST.
+'''
+
 waymo_classes = {0: 'unknown', 1: 'vehicle', 2: 'pedestrian', 3: 'sign', 4: 'cyclist'}
 waymo_to_coco = {0: 10, 1: 2, 2: 0, 3: 11, 4: 1}  # from waymo to coco
 

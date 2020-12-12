@@ -123,6 +123,8 @@ class YOLOLayer(nn.Module):
                 # scale objectness confidence with xywh uncertainties, take mean of four variances
                 sigma_xywh = sigma_xywh.view(batchsize, -1, 4)  # shape: [batch, anchor x grid_y x grid_x, 4]
                 sigma = sigma_xywh.mean(dim=-1)
+
+                # multiply the objectness score with the location uncertainty
                 pred[..., 4] *= (1.0 - sigma)
 
                 # unnormalize uncertainties

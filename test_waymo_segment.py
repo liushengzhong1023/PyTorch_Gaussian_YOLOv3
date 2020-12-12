@@ -316,7 +316,8 @@ def main():
 
     # Path to the image file fo the demo
     # segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
-    segment_path = '/home/sl29/data/Waymo/validation_images/segment-14127943473592757944'
+    # segment_path = '/home/sl29/data/Waymo/validation_images/segment-14127943473592757944'
+    segment_path = '/home/sl29/data/Waymo/validation_images/segment-2094681306939952000'
 
     # Detection threshold
     detect_thresh = 0.7
@@ -429,7 +430,7 @@ def main():
     cv2.destroyAllWindows()
 
     # analyze segment detection correlations
-    test_temporal_correlation_with_groundtruth(segment_detections, segment_labels)
+    # test_temporal_correlation_with_groundtruth(segment_detections, segment_labels)
     # test_temporal_correlation_with_tubelet(segment_detections)
 
     end = time.time()

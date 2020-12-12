@@ -43,6 +43,17 @@ for color in palette:
     rgb = np.array([int(r), int(g), int(b)])
     coco_class_colors = np.append(coco_class_colors, rgb[None, :], axis=0)
 
+coco_to_waymo = dict()
+for i in range(80):
+    coco_to_waymo[i] = 0
+
+coco_to_waymo[2] = 1
+coco_to_waymo[5] = 1
+coco_to_waymo[7] = 1
+coco_to_waymo[0] = 2
+coco_to_waymo[1] = 4
+coco_to_waymo[12] = 3
+
 
 # -------------------------------------------- Waymo Util Functions ----------------------------------
 def read_segment_labels(segment_path):
@@ -114,6 +125,10 @@ def main():
     output_path = '/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/waymo_detections/full_frame_detections'
     segment_list = os.listdir(validation_path)
 
+    # Path to save the labels and detections for mAP evaluations.
+    map_detection_path = '/home/sl29/DeepScheduling/result/yolov3_result/gaussian_yolov3_detections_full'
+    map_label_path = '/home/sl29/DeepScheduling/result/yolov3_result/labels'
+
     # Detection threshold
     detect_thresh = 0.5
 
@@ -162,6 +177,14 @@ def main():
         segment_path = os.path.join(validation_path, segment)
         output_file = os.path.join(output_path, segment + '.json')
 
+        # map paths
+        segment_map_detection_path = os.path.join(map_detection_path, segment)
+        segment_map_label_path = os.path.join(map_label_path, segment)
+
+        for file_path in [segment_map_detection_path, segment_map_label_path]:
+            if not os.path.exists(file_path):
+                os.mkdir(file_path)
+
         # read the labels
         segment_labels = read_segment_labels(segment_path)
         segment_detections = dict()
@@ -177,12 +200,25 @@ def main():
         image_name_list.sort()
 
         for image_name in image_name_list:
+
             # read image
             image_file = os.path.join(segment_path, image_name)
 
             # read labels
             image_time = extract_image_time_from_file_name(image_name)
             image_bbox_list = segment_labels[image_time]['FRONT']
+
+            # image detection and label file
+            image_map_detection_file = os.path.join(segment_map_detection_path, image_time + '.txt')
+            image_map_label_file = os.path.join(segment_map_label_path, image_time + '.txt')
+
+            # save the box labels
+            with open(image_map_label_file, 'w') as f:
+                for bbox in image_bbox_list:
+                    min_x, min_y, max_x, max_y = bbox['value']
+                    bbox_class = bbox['class']
+                    f.write(str(bbox_class) + ' ' + str(min_x) + ' ' + str(min_y) + ' ' +
+                            str(max_x) + ' ' + str(max_y) + '\n')
 
             # load image
             img, img_raw, info_img = load_image(image_file, 1920, gpu)
@@ -199,39 +235,45 @@ def main():
             detections = list()
 
             if outputs[0] is not None:
-                for output in outputs[0]:
-                    x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
-                    x1 = x1.item()
-                    y1 = y1.item()
-                    x2 = x2.item()
-                    y2 = y2.item()
-                    cls_pred = cls_pred.item()
-                    conf = conf.item()
-                    cls_conf = cls_conf.item()
+                with open(image_map_detection_file, 'w') as f:
+                    for output in outputs[0]:
+                        x1, y1, x2, y2, conf, cls_conf, cls_pred = output[:7]
+                        x1 = x1.item()
+                        y1 = y1.item()
+                        x2 = x2.item()
+                        y2 = y2.item()
+                        cls_pred = cls_pred.item()
+                        conf = conf.item()
+                        cls_conf = cls_conf.item()
 
-                    # minus the shift
-                    y1 -= dy
-                    y2 -= dy
-                    x1 -= dx
-                    x2 -= dx
+                        # minus the shift
+                        y1 -= dy
+                        y2 -= dy
+                        x1 -= dx
+                        x2 -= dx
 
-                    if gaussian:
-                        sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
-                        mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
+                        if gaussian:
+                            sigma_x, sigma_y, sigma_w, sigma_h = output[7:]
+                            mean_sigma = torch.mean(torch.stack([sigma_x, sigma_y, sigma_w, sigma_h])).cpu().numpy().item()
 
-                    # update box list
-                    cls_pred = int(cls_pred)
-                    box_color = coco_class_colors[cls_pred]
-                    detections.append({
-                        'box_value': [x1, y1, x2, y2],  # coordinates in the original image
-                        'coco_cls_pred': cls_pred,
-                        'coco_cls_name': coco_class_names[cls_pred],
-                        'objectness_score': conf,
-                        'class_conf': cls_conf,
-                        'conf_score': cls_conf * conf,
-                        'variance': mean_sigma if gaussian else 0,
-                        'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
-                    })
+                        # update box list
+                        cls_pred = int(cls_pred)
+                        box_color = coco_class_colors[cls_pred]
+                        detections.append({
+                            'box_value': [x1, y1, x2, y2],  # coordinates in the original image
+                            'coco_cls_pred': cls_pred,
+                            'coco_cls_name': coco_class_names[cls_pred],
+                            'objectness_score': conf,
+                            'class_conf': cls_conf,
+                            'conf_score': cls_conf * conf,
+                            'variance': mean_sigma if gaussian else 0,
+                            'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
+                        })
+
+                    # map class and save the result
+                    waymo_class = coco_to_waymo[cls_pred]
+                    f.write(str(waymo_class) + ' ' + str(cls_conf * conf) + ' ' + str(x1) + ' ' + str(y1) + ' ' +
+                            str(x2) + ' ' + str(y2) + '\n')
 
             # save the frame detection results
             segment_detections[image_time] = detections
