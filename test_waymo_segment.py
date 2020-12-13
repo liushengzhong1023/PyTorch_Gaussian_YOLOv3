@@ -315,9 +315,9 @@ def main():
     ckpt_path = './weights/gaussian_yolov3_coco.pth'
 
     # Path to the image file fo the demo
-    # segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
+    segment_path = '/home/sl29/data/Waymo/validation_images/segment-16751706457322889693'
     # segment_path = '/home/sl29/data/Waymo/validation_images/segment-14127943473592757944'
-    segment_path = '/home/sl29/data/Waymo/validation_images/segment-2094681306939952000'
+    # segment_path = '/home/sl29/data/Waymo/validation_images/segment-2094681306939952000'
 
     # Detection threshold
     detect_thresh = 0.7

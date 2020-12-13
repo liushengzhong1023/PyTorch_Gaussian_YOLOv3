@@ -13,6 +13,7 @@ from utils.utils import *
 from utils.parse_yolo_weights import parse_yolo_weights
 from utils.vis_bbox import vis_bbox
 from utils.IoU import get_iou
+from pathlib import Path
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
@@ -270,10 +271,12 @@ def main():
                             'color': (int(box_color[0]), int(box_color[1]), int(box_color[2]))
                         })
 
-                    # map class and save the result
-                    waymo_class = coco_to_waymo[cls_pred]
-                    f.write(str(waymo_class) + ' ' + str(cls_conf * conf) + ' ' + str(x1) + ' ' + str(y1) + ' ' +
-                            str(x2) + ' ' + str(y2) + '\n')
+                        # map class and save the result
+                        waymo_class = coco_to_waymo[cls_pred]
+                        f.write(str(waymo_class) + ' ' + str(cls_conf * conf) + ' ' + str(x1) + ' ' + str(y1) + ' ' +
+                                str(x2) + ' ' + str(y2) + '\n')
+            else:
+                Path(image_map_detection_file).touch()
 
             # save the frame detection results
             segment_detections[image_time] = detections
