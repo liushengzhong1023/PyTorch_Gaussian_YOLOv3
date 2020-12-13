@@ -123,7 +123,8 @@ def main():
 
     # Path to the image file fo the demo
     validation_path = '/home/sl29/data/Waymo/validation_images'
-    output_path = '/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/waymo_detections/full_frame_detections'
+    output_path = '/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/' \
+                  'waymo_detections/full_frame_detections'
     segment_list = os.listdir(validation_path)
 
     # Path to save the labels and detections for mAP evaluations.

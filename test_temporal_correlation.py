@@ -203,8 +203,7 @@ def main():
     segment_name = 'segment-16751706457322889693'
 
     # detection path
-    detection_path = '/home/sl29/DeepScheduling/src/temporal_locality/PyTorch_Gaussian_YOLOv3/' \
-                     'waymo_detections/full_frame_detections'
+    detection_path = '/home/sl29/DeepScheduling/result/yolov3_result/gaussian_yolov3_detections_full_json'
 
     # ----------------------------------- Load Waymo Data & Inference ----------------------------------
     segment_name_list = os.listdir(validation_path)
